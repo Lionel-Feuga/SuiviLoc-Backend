@@ -32,6 +32,7 @@ router.post('/scrape', async (req, res) => {
 
     const $ = cheerio.load(response.data);
     
+    // Rétrocompatibilité
     let imageUrl = $('meta[property="og:image"]').attr('content') || $('meta[name="og:image"]').attr('content');
     if (imageUrl && imageUrl.includes('bienici.com') && imageUrl.includes('share.png')) {
       imageUrl = ''; // On ignore le logo générique de BienIci
@@ -41,6 +42,48 @@ router.post('/scrape', async (req, res) => {
 
     const textToAnalyze = title + ' ' + description;
     const rawHtml = response.data;
+    const cleanHtml = rawHtml.replace(/\\"/g, '"'); // Nettoyage des quotes échappées
+
+    // --- EXTRACTION MULTI-IMAGES ---
+    let imageUrls = [];
+
+    // 1. Extraire via les métadonnées (OG:IMAGE multiple)
+    $('meta[property="og:image"]').each((i, el) => {
+        const content = $(el).attr('content');
+        if (content && !content.includes('bienici.com/share.png')) imageUrls.push(content);
+    });
+
+    // 2. Extraire via les arrays JSON (SeLoger, Leboncoin)
+    const photosMatch = cleanHtml.match(/"photos"\s*:\s*\[([^\]]+)\]/i) 
+                     || cleanHtml.match(/"urls_large"\s*:\s*\[([^\]]+)\]/i)
+                     || cleanHtml.match(/"urls"\s*:\s*\[([^\]]+)\]/i)
+                     || cleanHtml.match(/"images"\s*:\s*\[([^\]]+)\]/i)
+                     || cleanHtml.match(/"pictures"\s*:\s*\[([^\]]+)\]/i);
+
+    if (photosMatch && photosMatch[1]) {
+        const urls = photosMatch[1].match(/"(https?:\/\/[^"]+)"/g);
+        if (urls) {
+            urls.forEach(u => {
+                const cleanUrl = u.replace(/"/g, '').replace(/\\/g, '');
+                if (!cleanUrl.includes('avatar') && !cleanUrl.includes('logo')) {
+                    imageUrls.push(cleanUrl);
+                }
+            });
+        }
+    }
+
+    // 3. Fallback agressif: chercher tous les JPG de grande taille (exclure logos)
+    if (imageUrls.length === 0) {
+        const allJpgs = cleanHtml.match(/https?:\/\/[^"'\s]+\.(?:jpg|jpeg|webp)[^"'\s]*/gi);
+        if (allJpgs) {
+            imageUrls = allJpgs.filter(u => !u.includes('avatar') && !u.includes('logo') && !u.includes('icon'));
+        }
+    }
+
+    // Dédoublonnage
+    imageUrls = [...new Set(imageUrls)];
+    if (!imageUrl && imageUrls.length > 0) imageUrl = imageUrls[0];
+    if (imageUrl && !imageUrls.includes(imageUrl)) imageUrls.unshift(imageUrl);
     
     // Extraction des données avec Regex sur le texte visible
     let price = '';
@@ -51,7 +94,6 @@ router.post('/scrape', async (req, res) => {
     let contactName = '';
 
     // --- 1. Tentative d'extraction intelligente depuis les objets JSON (Next.js ou JSON-LD)
-    const cleanHtml = rawHtml.replace(/\\"/g, '"'); // Nettoyage des quotes échappées fréquentes dans le state React
     
     // On ignore les prix à 0 (qui sont souvent des prix d'options ou des balises vides)
     const jsonPriceMatch = cleanHtml.match(/"price"\s*:\s*\[?\s*([1-9]\d*)\s*\]?(?!\d)/i) 
@@ -128,7 +170,7 @@ router.post('/scrape', async (req, res) => {
       if (cpMatch) neighborhood = cpMatch[1];
     }
 
-    res.json({ imageUrl, title, price, rooms, surface, neighborhood, contactName });
+    res.json({ imageUrl, imageUrls, title, price, rooms, surface, neighborhood, contactName });
   } catch (error) {
     console.error("Erreur lors du scraping de l'URL:", url, error.message);
     res.status(500).json({ 

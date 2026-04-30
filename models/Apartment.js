@@ -15,6 +15,7 @@ const apartmentSchema = new mongoose.Schema({
   contactName: { type: String },
   url: { type: String },
   imageUrl: { type: String },
+  imageUrls: { type: [String], default: [] },
   description: { type: String }
 }, {
   timestamps: true
