@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const apartmentSchema = new mongoose.Schema({
   status: {
     type: String,
-    enum: ['En attente', 'Visite prévue', 'Dossier déposé', 'Refusé', 'Accepté'],
+    enum: ['En attente', 'À contacter', 'Visite prévue', 'Dossier déposé', 'Refusé', 'Accepté'],
     default: 'En attente'
   },
   price: { type: Number },
@@ -14,6 +14,7 @@ const apartmentSchema = new mongoose.Schema({
   contactNumber: { type: String },
   contactName: { type: String },
   url: { type: String },
+  imageUrl: { type: String },
   description: { type: String }
 }, {
   timestamps: true
