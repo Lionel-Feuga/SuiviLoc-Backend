@@ -16,7 +16,7 @@ const apartmentSchema = new mongoose.Schema({
   url: { type: String },
   description: { type: String }
 }, {
-  timestamps: true // Adds createdAt and updatedAt, useful even without history
+  timestamps: true
 });
 
 const Apartment = mongoose.model('Apartment', apartmentSchema);

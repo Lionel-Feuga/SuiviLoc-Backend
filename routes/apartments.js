@@ -3,7 +3,6 @@ import Apartment from '../models/Apartment.js';
 
 const router = express.Router();
 
-// GET all apartments
 router.get('/', async (req, res) => {
   try {
     const apartments = await Apartment.find().sort({ createdAt: -1 });
@@ -13,7 +12,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST a new apartment
 router.post('/', async (req, res) => {
   const apartment = new Apartment(req.body);
   try {
@@ -24,7 +22,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT (update) an apartment
 router.put('/:id', async (req, res) => {
   try {
     const updatedApartment = await Apartment.findByIdAndUpdate(
@@ -41,7 +38,6 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE an apartment
 router.delete('/:id', async (req, res) => {
   try {
     const deletedApartment = await Apartment.findByIdAndDelete(req.params.id);
