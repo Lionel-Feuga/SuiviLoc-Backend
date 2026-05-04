@@ -21,13 +21,19 @@ router.post('/scrape', async (req, res) => {
   }
 
   try {
-    const response = await axios.get(url, {
+    let finalUrl = url;
+    // Si une clé ScraperAPI est configurée, on passe par le proxy
+    if (process.env.SCRAPERAPI_KEY) {
+      finalUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}`;
+    }
+
+    const response = await axios.get(finalUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
       },
-      timeout: 10000
+      timeout: 20000 // ScraperAPI peut être un peu plus lent
     });
 
     const $ = cheerio.load(response.data);
