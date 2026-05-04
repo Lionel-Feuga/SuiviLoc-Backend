@@ -10,16 +10,26 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middlewares
-const frontendOrigin = process.env.FRONTEND_ORIGIN || 'https://suiviloc-frontend.vercel.app';
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://suiviloc-frontend.vercel.app',
+  process.env.FRONTEND_ORIGIN
+].filter(Boolean);
+
 app.use(cors({
-  origin: frontendOrigin,
+  origin: (origin, callback) => {
+    // Autoriser les requêtes sans origin (ex: curl, Postman, mobile)
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS bloqué pour: ${origin}`));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 app.use(express.json());
-// Handle preflight requests
-app.options('*', cors({ origin: frontendOrigin }));
 
 // Routes
 app.use('/api/apartments', apartmentsRouter);
