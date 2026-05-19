@@ -21,10 +21,13 @@ router.post('/scrape', async (req, res) => {
   }
 
   try {
-    let finalUrl = url;
-    // Si une clé ScraperAPI est configurée, on passe par le proxy
+    let cleanedUrl = url;
+    if (cleanedUrl.includes('?')) cleanedUrl = cleanedUrl.split('?')[0];
+    if (cleanedUrl.includes('#')) cleanedUrl = cleanedUrl.split('#')[0];
+    
+    let finalUrl = cleanedUrl;
     if (process.env.SCRAPERAPI_KEY) {
-      finalUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}`;
+      finalUrl = `http://api.scraperapi.com?api_key=${process.env.SCRAPERAPI_KEY}&url=${encodeURIComponent(cleanedUrl)}`;
     }
 
     const response = await axios.get(finalUrl, {
@@ -33,33 +36,30 @@ router.post('/scrape', async (req, res) => {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
       },
-      timeout: 20000 // ScraperAPI peut être un peu plus lent
+      timeout: 20000
     });
 
     const $ = cheerio.load(response.data);
     
-    // Rétrocompatibilité
     let imageUrl = $('meta[property="og:image"]').attr('content') || $('meta[name="og:image"]').attr('content');
     if (imageUrl && imageUrl.includes('bienici.com') && imageUrl.includes('share.png')) {
-      imageUrl = ''; // On ignore le logo générique de BienIci
+      imageUrl = '';
     }
     const title = $('meta[property="og:title"]').attr('content') || $('title').text() || '';
     const description = $('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || '';
 
     const textToAnalyze = title + ' ' + description;
     const rawHtml = response.data;
-    const cleanHtml = rawHtml.replace(/\\"/g, '"'); // Nettoyage des quotes échappées
+    const cleanHtml = rawHtml.replace(/\\"/g, '"');
 
-    // --- EXTRACTION MULTI-IMAGES ---
+    // Images
     let imageUrls = [];
 
-    // 1. Extraire via les métadonnées (OG:IMAGE multiple)
     $('meta[property="og:image"]').each((i, el) => {
         const content = $(el).attr('content');
         if (content && !content.includes('bienici.com/share.png')) imageUrls.push(content);
     });
 
-    // 2. Extraire via les arrays JSON (SeLoger, Leboncoin)
     const photosMatch = cleanHtml.match(/"photos"\s*:\s*\[([^\]]+)\]/i) 
                      || cleanHtml.match(/"urls_large"\s*:\s*\[([^\]]+)\]/i)
                      || cleanHtml.match(/"urls"\s*:\s*\[([^\]]+)\]/i)
@@ -78,7 +78,6 @@ router.post('/scrape', async (req, res) => {
         }
     }
 
-    // 3. Fallback agressif: chercher tous les JPG de grande taille (exclure logos)
     if (imageUrls.length === 0) {
         const allJpgs = cleanHtml.match(/https?:\/\/[^"'\s]+\.(?:jpg|jpeg|webp)[^"'\s]*/gi);
         if (allJpgs) {
@@ -86,12 +85,11 @@ router.post('/scrape', async (req, res) => {
         }
     }
 
-    // Dédoublonnage
     imageUrls = [...new Set(imageUrls)];
     if (!imageUrl && imageUrls.length > 0) imageUrl = imageUrls[0];
     if (imageUrl && !imageUrls.includes(imageUrl)) imageUrls.unshift(imageUrl);
     
-    // Extraction des données avec Regex sur le texte visible
+    // Properties
     let price = '';
     let rooms = '';
     let surface = '';
@@ -99,9 +97,6 @@ router.post('/scrape', async (req, res) => {
     let neighborhood = '';
     let contactName = '';
 
-    // --- 1. Tentative d'extraction intelligente depuis les objets JSON (Next.js ou JSON-LD)
-    
-    // On ignore les prix à 0 (qui sont souvent des prix d'options ou des balises vides)
     const jsonPriceMatch = cleanHtml.match(/"price"\s*:\s*\[?\s*([1-9]\d*)\s*\]?(?!\d)/i) 
                         || cleanHtml.match(/"price"\s*:\s*"([1-9]\d*)"/i)
                         || cleanHtml.match(/"price"\s*:\s*\{"value"\s*:\s*"(\d[\d\s\.,]*)\s*€"/i);
@@ -109,18 +104,17 @@ router.post('/scrape', async (req, res) => {
       price = parseInt(jsonPriceMatch[1].replace(/\s/g, '').replace('.', '').replace(',', ''), 10).toString();
     }
 
-    const contactMatch = cleanHtml.match(/"contactCard"\s*:\s*\{"title"\s*:\s*"([^"]+)"/i) // Seloger exact
-                      || cleanHtml.match(/"intermediaryCard"\s*:\s*\{"title"\s*:\s*"([^"]+)"/i) // Seloger agence exact
+    const contactMatch = cleanHtml.match(/"contactCard"\s*:\s*\{"title"\s*:\s*"([^"]+)"/i)
+                      || cleanHtml.match(/"intermediaryCard"\s*:\s*\{"title"\s*:\s*"([^"]+)"/i)
                       || cleanHtml.match(/"contactName"\s*:\s*"([^"]+)"/i) 
                       || cleanHtml.match(/"agencyName"\s*:\s*"([^"]+)"/i)
-                      || cleanHtml.match(/"owner"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i) // Leboncoin
-                      || cleanHtml.match(/"store_name"\s*:\s*"([^"]+)"/i) // Leboncoin pro
-                      || cleanHtml.match(/"contact"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i) // Seloger
-                      || cleanHtml.match(/"agency"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i) // Seloger
-                      || cleanHtml.match(/"professional"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i); // Seloger
+                      || cleanHtml.match(/"owner"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i)
+                      || cleanHtml.match(/"store_name"\s*:\s*"([^"]+)"/i)
+                      || cleanHtml.match(/"contact"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i)
+                      || cleanHtml.match(/"agency"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i)
+                      || cleanHtml.match(/"professional"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/i);
     if (contactMatch && contactMatch[1]) contactName = contactMatch[1];
 
-    // Extraction JSON-LD très précise (souvent utilisée par SeLoger)
     if (!contactName) {
       $('script[type="application/ld+json"]').each((i, el) => {
         try {
@@ -150,7 +144,6 @@ router.post('/scrape', async (req, res) => {
       });
     }
 
-    // --- 2. Fallbacks avec expressions régulières sur le titre et la description
     if (!price) {
       const priceMatchText = textToAnalyze.match(/(\d[\d\s\.,]*)\s*(?:€|euros)/i);
       if (priceMatchText) {
@@ -164,7 +157,6 @@ router.post('/scrape', async (req, res) => {
     const surfaceMatch = textToAnalyze.match(/(\d+[\.,]?\d*)\s*(?:m²|m2)/i);
     if (surfaceMatch) surface = parseFloat(surfaceMatch[1].replace(',', '.')).toString();
 
-    // Extraction précise du quartier depuis le JSON
     const jsonNeighMatch = cleanHtml.match(/"neighborhood"\s*:\s*"([^"]+)"/i)
                         || cleanHtml.match(/"district"\s*:\s*"([^"]+)"/i);
     if (jsonNeighMatch && jsonNeighMatch[1]) {
